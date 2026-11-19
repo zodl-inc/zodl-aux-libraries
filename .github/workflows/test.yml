@@ -1,0 +1,92 @@
+name: Test
+# Runs the whole generate + build + consume chain with the public example values. It reads no secret and publishes nothing.
+# Job names are the required checks in zodl-inc/github-config.
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with: { cache-disabled: true }
+      - name: Build, publish to Maven local with a throwaway key and the example values
+        run: |
+          set -euo pipefail
+          eval "$(python3 scripts/swift_values.py example-env)"
+          export GNUPGHOME="$(mktemp -d)"
+          gpg --batch --pinentry-mode loopback --passphrase '' --quick-gen-key "ci <ci@example.invalid>" rsa2048 sign never
+          # The release form of the key: armored, then base64 (MAVEN_SIGNING_KEY_ASCII, as publish.yml passes it).
+          export ORG_GRADLE_PROJECT_signingKeyBase64="$(gpg --batch --pinentry-mode loopback --passphrase '' --armor --export-secret-keys ci@example.invalid | base64 -w0)"
+          ./gradlew --no-daemon publishToMavenLocal
+          VERSION="$(sed -n 's/^VERSION_NAME=//p' gradle.properties)"
+          DIR=~/.m2/repository/com/zodl/android/app-config/$VERSION
+          BASE="$DIR/app-config-$VERSION"
+          # What Central requires: jar, sources, javadoc, POM, each signed; the POM metadata.
+          for f in "$BASE.jar" "$BASE-sources.jar" "$BASE-javadoc.jar" "$BASE.pom"; do
+            test -f "$f" && test -f "$f.asc" || { echo "missing $f or its signature" >&2; exit 1; }
+            gpg --batch --verify "$f.asc" "$f"
+          done
+          for tag in '<name>Zodl app config</name>' '<description>' '<url>https://github.com/zodl-inc/zodl-aux-libraries</url>' \
+                     '<name>AGPL-3.0-only</name>' '<developer>' '<connection>scm:git:https://github.com/zodl-inc/zodl-aux-libraries.git</connection>'; do
+            grep -q -F "$tag" "$BASE.pom" || { echo "POM lacks $tag" >&2; exit 1; }
+          done
+          # grep -c reads the whole stream: under pipefail an early exit would fail the producer.
+          unzip -p "$BASE.jar" 'com/zodl/appconfig/AppConfig$Ohttp.class' | grep -ac ohttp-gateway.example > /dev/null
+          if unzip -l "$BASE.jar" | grep '\.kt$'; then echo "the jar must not ship sources" >&2; exit 1; fi
+
+  swift-tests:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: Select the Xcode in .xcode-version
+        run: scripts/select_xcode.sh >> "$GITHUB_ENV"
+      - name: Unit tests with the example values
+        run: |
+          set -euo pipefail
+          python3 scripts/swift_values.py generate --mode example
+          swift test
+  xcframework-dry-run:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: Select the Xcode in .xcode-version
+        run: scripts/select_xcode.sh >> "$GITHUB_ENV"
+      - name: Build and verify a release with the example values (publishes nothing)
+        run: scripts/build_release.sh 0.0.0 "$RUNNER_TEMP/release" example
+      # Public example values only. Kept so the framework this Xcode built can be checked with a newer Xcode.
+      - name: Keep the example-values XCFramework
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: example-xcframework
+          path: ${{ runner.temp }}/release/ZodlAppConfig.xcframework.zip
+          if-no-files-found: error
+          retention-days: 7
+  python-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: Generator, manifest, publish script and workflow tests
+        run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
+
+  no-committed-values:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: No value may be committed
+        run: python3 scripts/check_no_committed_values.py

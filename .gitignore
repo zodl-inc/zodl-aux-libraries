@@ -1,0 +1,9 @@
+build/
+.gradle/
+.kotlin/
+.idea/
+.build/
+__pycache__/
+.swiftpm/
+DerivedData/
+.build-release/

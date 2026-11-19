@@ -1,0 +1,195 @@
+name: Publish
+# One run publishes both platforms under one version X.Y.Z:
+#   preflight        checks the version and rehearses the whole Swift release with the real values; publishes nothing
+#   publish-android  publishes the Maven artifact com.zodl.android:app-config (Maven Central) with the values that
+#                    config/schema.json names, from AWS; it pushes no tag
+#   publish-ios      builds the XCFramework with the values, pushes the tag X.Y.Z on a release-only commit and
+#                    creates the GitHub release that holds the XCFramework, with the zodl-release-bot app's token
+# The tag is pushed only after Android is published, right before the GitHub release is created.
+# Manual only: a new version is a deliberate act. The 'release' environment (github-config) is limited to main.
+# Values and Maven credentials are read from AWS by zodl-inc/actions/aws-secrets, no copy lives on GitHub.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, X.Y.Z. It must equal VERSION_NAME in gradle.properties."
+        required: true
+        type: string
+permissions:
+  contents: read
+# One release at a time: a second run of the same version waits, then stops at the version checks.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: macos-latest
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write         # OIDC for aws-secrets
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: The version is X.Y.Z, equals VERSION_NAME and is not a tag yet
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/check_version.sh "$VERSION"
+      - name: Select the Xcode in .xcode-version
+        run: scripts/select_xcode.sh >> "$GITHUB_ENV"
+      - name: Read the values of the ohttp group from AWS
+        uses: zodl-inc/actions/aws-secrets@1089c3325c069e5cdd6ae5aa625006c850388c56 # v1
+        with:
+          environment: release
+          secrets: |
+            APP_CONFIG_OHTTP_GATEWAY_HOST_MAINNET
+            APP_CONFIG_OHTTP_RELAY_URL_MAINNET
+            APP_CONFIG_OHTTP_KEYS_DNS_NAME_MAINNET
+            APP_CONFIG_OHTTP_SIGNING_PUBKEY_MAINNET
+            APP_CONFIG_OHTTP_GATEWAY_HOST_TESTNET
+            APP_CONFIG_OHTTP_RELAY_URL_TESTNET
+            APP_CONFIG_OHTTP_KEYS_DNS_NAME_TESTNET
+            APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET
+      - name: The values also pass the Android rules (writes only to the runner's temp directory)
+        run: python3 scripts/appconfig.py kotlin "$RUNNER_TEMP/android-check" && rm -rf "$RUNNER_TEMP/android-check"
+      - name: Rehearse the Swift release (publishes nothing)
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/build_release.sh "$VERSION" "$RUNNER_TEMP/release"
+  publish-android:
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 90
+    outputs:
+      digest: ${{ steps.digest.outputs.value }}
+    permissions:
+      contents: read
+      id-token: write         # OIDC for aws-secrets
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: Preflight, the version must be new on Maven Central and as a tag
+        id: central
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^VERSION_NAME=//p' gradle.properties)"
+          GROUP_PATH="$(sed -n 's/^GROUP=//p' gradle.properties | tr . /)"
+          ARTIFACT="$(sed -n 's/^ARTIFACT_ID=//p' gradle.properties)"
+          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${VERSION}" >/dev/null; then
+            echo "Tag ${VERSION} already exists" >&2; exit 1
+          fi
+          POM_URL="https://repo1.maven.org/maven2/${GROUP_PATH}/${ARTIFACT}/${VERSION}/${ARTIFACT}-${VERSION}.pom"
+          echo "POM_URL=${POM_URL}" >> "$GITHUB_ENV"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$POM_URL")"
+          if [ "$code" = 200 ]; then
+            # A re-run of this job after Central published late (the wait below gave up): skip the upload.
+            if [ "${GITHUB_RUN_ATTEMPT}" -gt 1 ]; then
+              echo "Version ${VERSION} is on Maven Central already: re-run, the upload is skipped"
+              echo "already_published=1" >> "$GITHUB_OUTPUT"
+            else
+              echo "Version ${VERSION} is already on Maven Central" >&2; exit 1
+            fi
+          fi
+      - name: Names of the values to read (from config/schema.json)
+        id: names
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF_NAMES"
+            python3 scripts/appconfig.py env-names
+            echo "ORG_GRADLE_PROJECT_mavenCentralUsername=MAVEN_CENTRAL_USERNAME"
+            echo "ORG_GRADLE_PROJECT_mavenCentralPassword=MAVEN_CENTRAL_PASSWORD"
+            echo "ORG_GRADLE_PROJECT_signingKeyBase64=MAVEN_SIGNING_KEY_ASCII"
+            echo "EOF_NAMES"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with: { cache-disabled: true }     # values must never end up in a cache
+      # The names come from config/schema.json; Gradle reads the values under the same APP_CONFIG_* names.
+      - name: Read the values and the Maven credentials from AWS
+        uses: zodl-inc/actions/aws-secrets@1089c3325c069e5cdd6ae5aa625006c850388c56 # v1
+        with:
+          environment: release
+          secrets: ${{ steps.names.outputs.list }}
+      - name: Digest of the values, for publish-ios (a sha256, never a value)
+        id: digest
+        run: |
+          set -euo pipefail
+          digest="$(python3 scripts/appconfig.py digest)"
+          echo "value=${digest}" >> "$GITHUB_OUTPUT"
+      - name: Publish to Maven Central
+        if: steps.central.outputs.already_published != '1'
+        run: ./gradlew --no-daemon --no-build-cache publishAndReleaseToMavenCentral
+      - name: Wait until Maven Central serves the artifact
+        # The plugin only uploads the bundle; Central validates and publishes asynchronously (duplicate version,
+        # unverified namespace, signature, POM rules). Fail here if it never shows up.
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 120); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$POM_URL")"
+            [ "$code" = 200 ] && { echo "Published after $i checks"; exit 0; }
+            sleep 30
+          done
+          echo "Not on Maven Central after 60 minutes: check the Central Portal deployments, then re-run this job." >&2
+          exit 1
+  publish-ios:
+    needs: [preflight, publish-android]
+    runs-on: macos-latest
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read          # the tag and the release are written with the release bot's token, not this one
+      id-token: write         # OIDC for aws-secrets
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - name: Select the Xcode in .xcode-version
+        run: scripts/select_xcode.sh >> "$GITHUB_ENV"
+      - name: Read the values of the ohttp group from AWS
+        uses: zodl-inc/actions/aws-secrets@1089c3325c069e5cdd6ae5aa625006c850388c56 # v1
+        with:
+          environment: release
+          secrets: |
+            APP_CONFIG_OHTTP_GATEWAY_HOST_MAINNET
+            APP_CONFIG_OHTTP_RELAY_URL_MAINNET
+            APP_CONFIG_OHTTP_KEYS_DNS_NAME_MAINNET
+            APP_CONFIG_OHTTP_SIGNING_PUBKEY_MAINNET
+            APP_CONFIG_OHTTP_GATEWAY_HOST_TESTNET
+            APP_CONFIG_OHTTP_RELAY_URL_TESTNET
+            APP_CONFIG_OHTTP_KEYS_DNS_NAME_TESTNET
+            APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET
+            RELEASE_BOT_APP_KEY
+          vars: |
+            RELEASE_BOT_APP_ID
+      - name: The values are the ones publish-android published
+        env:
+          ANDROID_DIGEST: ${{ needs.publish-android.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_DIGEST" ] || [ "$(python3 scripts/appconfig.py digest)" != "$ANDROID_DIGEST" ]; then
+            echo "error: the values differ from the ones publish-android published (changed in AWS during the run?)" >&2
+            exit 1
+          fi
+      - name: Build and verify the release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/build_release.sh "$VERSION" "$RUNNER_TEMP/release"
+      # The release tag ruleset lets only maintainers and the zodl-release-bot app create X.Y.Z tags
+      # (zodl-inc/github-config). A short-lived installation token for this repository, contents write only.
+      - name: Token of the release bot
+        id: bot
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ env.RELEASE_BOT_APP_ID }}
+          private-key: ${{ env.RELEASE_BOT_APP_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Push the tag on the release-only commit and create the GitHub release
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: scripts/publish_release.sh "$VERSION" "$RUNNER_TEMP/release"

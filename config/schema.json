@@ -1,0 +1,20 @@
+{
+  "_comment": "Names only, never values. Each key becomes a constant of the Android artifact, AppConfig.<Group>.<KEY>, filled in CI from the environment variable APP_CONFIG_<GROUP>_<KEY> (read from AWS Secrets Manager through OIDC in the release environment). The ohttp keys must equal scripts/swift_values.py NAMES, which the Swift package uses. See README, Adding a value.",
+  "kotlin_package": "com.zodl.appconfig",
+  "root": "AppConfig",
+  "groups": {
+    "ohttp": {
+      "required": true,
+      "keys": [
+        "GATEWAY_HOST_MAINNET",
+        "RELAY_URL_MAINNET",
+        "KEYS_DNS_NAME_MAINNET",
+        "SIGNING_PUBKEY_MAINNET",
+        "GATEWAY_HOST_TESTNET",
+        "RELAY_URL_TESTNET",
+        "KEYS_DNS_NAME_TESTNET",
+        "SIGNING_PUBKEY_TESTNET"
+      ]
+    }
+  }
+}
