@@ -1,8 +1,8 @@
 # Zodl app config
 
 Tiny package, published for both platforms from one CI run, that carries build-time configuration for the Zodl apps:
-today one group, `ohttp`, with 8 values (gateway host, relay URL, keys DNS name, signing public key, for mainnet and
-testnet; all 8 are required). There is no runtime code besides the Swift decoder. The repository holds code and
+today one group, `ohttp`, with 10 values (gateway host, relay URL, keys DNS name, signing public key and weighted
+relay list, for mainnet and testnet; all 10 are required). There is no runtime code besides the Swift decoder. The repository holds code and
 names only; the values exist only in the published artifacts.
 
 - Android: Maven artifact `com.zodl.android:app-config` on Maven Central, so public F-Droid (which only accepts
@@ -30,8 +30,14 @@ variable, never the value.
 ```kotlin
 import com.zodl.appconfig.AppConfig
 
-AppConfig.Ohttp.GATEWAY_HOST_MAINNET // also RELAY_URL_, KEYS_DNS_NAME_, SIGNING_PUBKEY_ for _MAINNET and _TESTNET
+AppConfig.Ohttp.GATEWAY_HOST_MAINNET // also RELAY_URL_, KEYS_DNS_NAME_, SIGNING_PUBKEY_, RELAY_URLS_ for _MAINNET and _TESTNET
 ```
+
+`RELAY_URLS_<NETWORK>` lists the relays of a network with their weights, `URL|WEIGHT` entries separated by `,`
+(weights 0 to 100, at most 8 relays, no relay twice, at least one weight above 0), `RELAY_URL_<NETWORK>` first and no
+relay shared with the other network. It is the relay URL value for SDKs on `zodl-ohttp-client` 2.2.0 or later, which
+send each request to a relay drawn by weight and fail over to another while one fails; `RELAY_URL_<NETWORK>` stays
+the single relay for older SDKs. Changing the split is a new version, like any value.
 
 ## Swift package
 Product `ZodlAppConfig`, for iOS 16 and macOS 14, arm64 only (devices, the simulator on Apple silicon, and Mac).
@@ -39,7 +45,7 @@ Product `ZodlAppConfig`, for iOS 16 and macOS 14, arm64 only (devices, the simul
 ```swift
 import ZodlAppConfig
 
-AppConfig.Ohttp.mainnet // AppConfig.Ohttp.NetworkValues?: gatewayHost, relayURL, keysDNSName, signingPublicKey
+AppConfig.Ohttp.mainnet // AppConfig.Ohttp.NetworkValues?: gatewayHost, relayURL, keysDNSName, signingPublicKey, relayURLs
 AppConfig.Ohttp.testnet
 ```
 
@@ -49,7 +55,7 @@ Pin an exact release version, never a branch:
 .package(url: "https://github.com/zodl-inc/zodl-aux-libraries", exact: "X.Y.Z")
 ```
 
-- A release tag holds one binary target. Its XCFramework carries the eight values XOR-encoded, so none appears as plain
+- A release tag holds one binary target. Its XCFramework carries the ten values XOR-encoded, so none appears as plain
   text in the binary or in an app. Every release carries both networks.
 - `main` holds no values. `Sources/ZodlAppConfig/EncodedValues.generated.swift` is committed in its form without
   values, so a build of `main` returns nil for both networks. `python3 scripts/swift_values.py generate --mode example`
@@ -60,7 +66,7 @@ Pin an exact release version, never a branch:
 ## Release
 Manual `Publish` workflow on `main` with the input `version` (`X.Y.Z`). It must equal `VERSION_NAME` in
 `gradle.properties`, so bump that file first, in a pull request. The workflow runs in the environment `release`
-(limited to `main`, set up in `zodl-inc/github-config`). The 8 values and the Maven credentials are read from AWS by
+(limited to `main`, set up in `zodl-inc/github-config`). The 10 values and the Maven credentials are read from AWS by
 `zodl-inc/actions/aws-secrets`; nothing is stored on GitHub. In that environment the values are named
 `APP_CONFIG_OHTTP_<KEY>`, for example `APP_CONFIG_OHTTP_RELAY_URL_MAINNET`. Three jobs run in order:
 
@@ -100,7 +106,7 @@ If `publish-ios` fails after `publish-android` succeeded:
    fail while the schema and `swift_values.NAMES` differ. Then `python3 scripts/swift_values.py generate --mode none`
    keeps the committed Swift file in its form without values.
 2. Map `APP_CONFIG_<GROUP>_<KEY>` for the `release` environment in `zodl-inc/github-config`, pointing at the existing
-   Secrets Manager entry. The Swift jobs of `publish.yml` list the eight `ohttp` names themselves.
+   Secrets Manager entry. The Swift jobs of `publish.yml` list the ten `ohttp` names themselves.
 3. Bump `VERSION_NAME` in `gradle.properties`, merge, run `Publish`, then bump the version in the apps.
 
 Anything published here is public and permanent. Only put values here that already ship inside the apps; access

@@ -26,7 +26,7 @@ AWS_ACTION = "zodl-inc/actions/aws-secrets@1089c3325c069e5cdd6ae5aa625006c850388
 NAMES = [
     "APP_CONFIG_OHTTP_%s_%s" % (field, network)
     for network in ("MAINNET", "TESTNET")
-    for field in ("GATEWAY_HOST", "RELAY_URL", "KEYS_DNS_NAME", "SIGNING_PUBKEY")
+    for field in ("GATEWAY_HOST", "RELAY_URL", "KEYS_DNS_NAME", "SIGNING_PUBKEY", "RELAY_URLS")
 ]
 
 
@@ -100,7 +100,7 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertLess(ios.index("scripts/build_release.sh"), ios.index("scripts/publish_release.sh"))
         self.assertEqual(self.text.count("scripts/publish_release.sh"), 1)
 
-    def test_both_swift_jobs_read_the_eight_values_through_the_pinned_action(self):
+    def test_both_swift_jobs_read_the_ten_values_through_the_pinned_action(self):
         for name in ("preflight", "publish-ios"):
             body = job(self.text, name)
             self.assertIn(AWS_ACTION, body)
@@ -122,7 +122,7 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertLess(android.index("env-names"), android.index(AWS_ACTION))
         self.assertLess(android.index(AWS_ACTION), android.index("publishAndReleaseToMavenCentral"))
 
-    def test_the_schema_names_are_the_eight_values_of_the_swift_jobs(self):
+    def test_the_schema_names_are_the_ten_values_of_the_swift_jobs(self):
         names = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "appconfig.py"), "env-names"],
                                capture_output=True, text=True, check=True).stdout.split()
         self.assertEqual(names, NAMES)

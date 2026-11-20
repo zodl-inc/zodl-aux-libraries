@@ -48,10 +48,12 @@ jobs:
             APP_CONFIG_OHTTP_RELAY_URL_MAINNET
             APP_CONFIG_OHTTP_KEYS_DNS_NAME_MAINNET
             APP_CONFIG_OHTTP_SIGNING_PUBKEY_MAINNET
+            APP_CONFIG_OHTTP_RELAY_URLS_MAINNET
             APP_CONFIG_OHTTP_GATEWAY_HOST_TESTNET
             APP_CONFIG_OHTTP_RELAY_URL_TESTNET
             APP_CONFIG_OHTTP_KEYS_DNS_NAME_TESTNET
             APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET
+            APP_CONFIG_OHTTP_RELAY_URLS_TESTNET
       - name: The values also pass the Android rules (writes only to the runner's temp directory)
         run: python3 scripts/appconfig.py kotlin "$RUNNER_TEMP/android-check" && rm -rf "$RUNNER_TEMP/android-check"
       - name: Rehearse the Swift release (publishes nothing)
@@ -158,10 +160,12 @@ jobs:
             APP_CONFIG_OHTTP_RELAY_URL_MAINNET
             APP_CONFIG_OHTTP_KEYS_DNS_NAME_MAINNET
             APP_CONFIG_OHTTP_SIGNING_PUBKEY_MAINNET
+            APP_CONFIG_OHTTP_RELAY_URLS_MAINNET
             APP_CONFIG_OHTTP_GATEWAY_HOST_TESTNET
             APP_CONFIG_OHTTP_RELAY_URL_TESTNET
             APP_CONFIG_OHTTP_KEYS_DNS_NAME_TESTNET
             APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET
+            APP_CONFIG_OHTTP_RELAY_URLS_TESTNET
             RELEASE_BOT_APP_KEY
           vars: |
             RELEASE_BOT_APP_ID
