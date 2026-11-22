@@ -1,8 +1,8 @@
 # Zodl app config
 
 Tiny package, published for both platforms from one CI run, that carries build-time configuration for the Zodl apps:
-today one group, `ohttp`, with 10 values (gateway host, relay URL, keys DNS name, signing public key and relay
-list, for mainnet and testnet; all 10 are required). There is no runtime code besides the Swift decoder. The repository holds code and
+today one group, `ohttp`, with 12 values (gateway host, relay URL, keys DNS name, signing public key, relay list
+and relay weights public key, for mainnet and testnet; all 12 are required). There is no runtime code besides the Swift decoder. The repository holds code and
 names only; the values exist only in the published artifacts.
 
 - Android: Maven artifact `com.zodl.android:app-config` on Maven Central, so public F-Droid (which only accepts
@@ -30,7 +30,7 @@ variable, never the value.
 ```kotlin
 import com.zodl.appconfig.AppConfig
 
-AppConfig.Ohttp.GATEWAY_HOST_MAINNET // also RELAY_URL_, KEYS_DNS_NAME_, SIGNING_PUBKEY_, RELAY_URLS_ for _MAINNET and _TESTNET
+AppConfig.Ohttp.GATEWAY_HOST_MAINNET // also RELAY_URL_, KEYS_DNS_NAME_, SIGNING_PUBKEY_, RELAY_URLS_, RELAY_WEIGHTS_PUBKEY_ for _MAINNET and _TESTNET
 ```
 
 `RELAY_URLS_<NETWORK>` lists the relays of a network, relay URLs separated by `,` (each after the first starting
@@ -40,13 +40,21 @@ equally and fail over to another while one fails; `RELAY_URL_<NETWORK>` stays th
 is a configuration error there). The order is significant: the first relay is the stable one and the source of the
 signed key configuration, and relays fail over in list order.
 
+`RELAY_WEIGHTS_PUBKEY_<NETWORK>` is the raw Ed25519 public key (64 hex digits, either case) that signs the network's
+relay weights block. On `zodl-ohttp-client` 2.5.0 or later the gateway's signed key configuration may carry that block,
+signed separately, which sets the share of each relay of `RELAY_URLS_<NETWORK>` instead of equal shares (it names no
+relay and only applies to exactly the configured list; see `docs/relay-weights.md` of `zodl-ohttp`). Pass the value to
+`OhttpConfig::with_relay_weights_key`. An empty key means the SDK reads no block and the shares stay equal; a release
+of this package carries a key for both networks. The key must differ from `SIGNING_PUBKEY_<NETWORK>` and from the other
+network's signing and relay weights keys.
+
 ## Swift package
 Product `ZodlAppConfig`, for iOS 16 and macOS 14, arm64 only (devices, the simulator on Apple silicon, and Mac).
 
 ```swift
 import ZodlAppConfig
 
-AppConfig.Ohttp.mainnet // AppConfig.Ohttp.NetworkValues?: gatewayHost, relayURL, keysDNSName, signingPublicKey, relayURLs
+AppConfig.Ohttp.mainnet // AppConfig.Ohttp.NetworkValues?: gatewayHost, relayURL, keysDNSName, signingPublicKey, relayURLs, relayWeightsPublicKey
 AppConfig.Ohttp.testnet
 ```
 
@@ -56,7 +64,7 @@ Pin an exact release version, never a branch:
 .package(url: "https://github.com/zodl-inc/zodl-aux-libraries", exact: "X.Y.Z")
 ```
 
-- A release tag holds one binary target. Its XCFramework carries the ten values XOR-encoded, so none appears as plain
+- A release tag holds one binary target. Its XCFramework carries the twelve values XOR-encoded, so none appears as plain
   text in the binary or in an app. Every release carries both networks.
 - `main` holds no values. `Sources/ZodlAppConfig/EncodedValues.generated.swift` is committed in its form without
   values, so a build of `main` returns nil for both networks. `python3 scripts/swift_values.py generate --mode example`
@@ -67,7 +75,7 @@ Pin an exact release version, never a branch:
 ## Release
 Manual `Publish` workflow on `main` with the input `version` (`X.Y.Z`). It must equal `VERSION_NAME` in
 `gradle.properties`, so bump that file first, in a pull request. The workflow runs in the environment `release`
-(limited to `main`, set up in `zodl-inc/github-config`). The 10 values and the Maven credentials are read from AWS by
+(limited to `main`, set up in `zodl-inc/github-config`). The 12 values and the Maven credentials are read from AWS by
 `zodl-inc/actions/aws-secrets`; nothing is stored on GitHub. In that environment the values are named
 `APP_CONFIG_OHTTP_<KEY>`, for example `APP_CONFIG_OHTTP_RELAY_URL_MAINNET`. Three jobs run in order:
 
@@ -103,11 +111,14 @@ If `publish-ios` fails after `publish-android` succeeded:
 1. Add the key to `config/schema.json` (or a new group, which reaches Android only). `publish-android` reads every
    schema name, so each needs its mapping in step 2; `required: false` only lets the Kotlin generator accept an empty
    value. A new `ohttp` key also needs
-   `scripts/swift_values.py` (names and rules) and the Swift API in `Sources/ZodlAppConfig/AppConfig.swift`; the tests
-   fail while the schema and `swift_values.NAMES` differ. Then `python3 scripts/swift_values.py generate --mode none`
+   `scripts/swift_values.py` (`FIELDS`, an example value and its rule), the Swift API in
+   `Sources/ZodlAppConfig/AppConfig.swift` (a `NetworkValues` property, an init argument with a default so existing
+   callers compile, and one more decoded value per network), the comparison in `scripts/verify_release_package.sh`,
+   and the name in both Swift jobs of `publish.yml`; the Kotlin constant comes from the schema alone. The tests fail
+   while the schema, `swift_values.NAMES` and the workflow differ. Then `python3 scripts/swift_values.py generate --mode none`
    keeps the committed Swift file in its form without values.
 2. Map `APP_CONFIG_<GROUP>_<KEY>` for the `release` environment in `zodl-inc/github-config`, pointing at the existing
-   Secrets Manager entry. The Swift jobs of `publish.yml` list the ten `ohttp` names themselves.
+   Secrets Manager entry. The Swift jobs of `publish.yml` list the twelve `ohttp` names themselves.
 3. Bump `VERSION_NAME` in `gradle.properties`, merge, run `Publish`, then bump the version in the apps.
 
 Anything published here is public and permanent. Only put values here that already ship inside the apps; access

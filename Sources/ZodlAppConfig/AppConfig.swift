@@ -30,38 +30,44 @@ public enum AppConfig {
             /// The relays, relay URLs separated by `,`, `relayURL` first: the relay URL value of SDKs on
             /// zodl-ohttp-client 2.2.0 or later, which split the requests between the relays equally.
             public let relayURLs: String
+            /// The raw Ed25519 public key, 64 hex digits, of the network's relay weights block: pass it to
+            /// `OhttpConfig::with_relay_weights_key` (zodl-ohttp-client 2.5.0 or later). Empty means the SDK reads no
+            /// block and the relays keep equal shares.
+            public let relayWeightsPublicKey: String
 
-            /// `relayURLs` defaults to `relayURL` alone.
+            /// `relayURLs` defaults to `relayURL` alone, `relayWeightsPublicKey` to empty (no relay weights key).
             public init(
                 gatewayHost: String,
                 relayURL: String,
                 keysDNSName: String,
                 signingPublicKey: String,
-                relayURLs: String? = nil
+                relayURLs: String? = nil,
+                relayWeightsPublicKey: String = ""
             ) {
                 self.gatewayHost = gatewayHost
                 self.relayURL = relayURL
                 self.keysDNSName = keysDNSName
                 self.signingPublicKey = signingPublicKey
                 self.relayURLs = relayURLs ?? relayURL
+                self.relayWeightsPublicKey = relayWeightsPublicKey
             }
         }
 
         public static let mainnet: NetworkValues? = decode(key: EncodedValues.key, network: EncodedValues.mainnet)
         public static let testnet: NetworkValues? = decode(key: EncodedValues.key, network: EncodedValues.testnet)
 
-        /// Decodes one network as `scripts/swift_values.py` writes it: five values in the order gateway host, relay URL,
-        /// keys DNS name, signing public key and relay list, each value's UTF-8 bytes XORed with the key, byte `i` with
-        /// `key[i % key.count]`. Nil when the network is absent, the key is empty, there are not exactly five values, or
+        /// Decodes one network as `scripts/swift_values.py` writes it: six values in the order gateway host, relay URL,
+        /// keys DNS name, signing public key, relay list and relay weights public key, each value's UTF-8 bytes XORed with the key, byte `i` with
+        /// `key[i % key.count]`. Nil when the network is absent, the key is empty, there are not exactly six values, or
         /// a value does not decode to UTF-8.
         static func decode(key: [UInt8], network: [[UInt8]]?) -> NetworkValues? {
-            guard let network, network.count == 5, !key.isEmpty else {
+            guard let network, network.count == 6, !key.isEmpty else {
                 return nil
             }
             let values = network.compactMap { value in
                 String(bytes: value.enumerated().map { index, byte in byte ^ key[index % key.count] }, encoding: .utf8)
             }
-            guard values.count == 5 else {
+            guard values.count == 6 else {
                 return nil
             }
             return NetworkValues(
@@ -69,7 +75,8 @@ public enum AppConfig {
                 relayURL: values[1],
                 keysDNSName: values[2],
                 signingPublicKey: values[3],
-                relayURLs: values[4]
+                relayURLs: values[4],
+                relayWeightsPublicKey: values[5]
             )
         }
     }

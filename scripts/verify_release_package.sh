@@ -18,7 +18,7 @@
 # Usage: scripts/verify_release_package.sh PATH/TO/ZodlAppConfig.xcframework
 #
 # Assembles the release form of the package around the given XCFramework and uses it as an app would:
-# a consumer compares the package's values with the ten APP_CONFIG_OHTTP_* of the environment, then builds and links
+# a consumer compares the package's values with the twelve APP_CONFIG_OHTTP_* of the environment, then builds and links
 # for iOS, the iOS Simulator and macOS (arm64). It prints names only, never a value.
 set -euo pipefail
 
@@ -60,7 +60,8 @@ func differences(_ network: String, _ values: AppConfig.Ohttp.NetworkValues?) ->
         ("RELAY_URL", values?.relayURL),
         ("KEYS_DNS_NAME", values?.keysDNSName),
         ("SIGNING_PUBKEY", values?.signingPublicKey),
-        ("RELAY_URLS", values?.relayURLs)
+        ("RELAY_URLS", values?.relayURLs),
+        ("RELAY_WEIGHTS_PUBKEY", values?.relayWeightsPublicKey)
     ]
     return fields.compactMap { field, value in
         let name = "APP_CONFIG_OHTTP_\(field)_\(network)"
