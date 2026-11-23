@@ -18,7 +18,7 @@
 # Usage: scripts/verify_release_package.sh PATH/TO/ZodlAppConfig.xcframework
 #
 # Assembles the release form of the package around the given XCFramework and uses it as an app would:
-# a consumer compares the package's values with the eight APP_CONFIG_OHTTP_* of the environment, then builds and links
+# a consumer compares the package's values with the eight APP_CONFIG_OHTTP_* and the APP_CONFIG_NEAR_FEE_RECIPIENT of the environment, then builds and links
 # for iOS, the iOS Simulator and macOS (arm64). It prints names only, never a value.
 set -euo pipefail
 
@@ -68,7 +68,14 @@ func differences(_ network: String, _ values: AppConfig.Ohttp.NetworkValues?) ->
     }
 }
 
+func nearDifferences() -> [String] {
+    let name = "APP_CONFIG_NEAR_FEE_RECIPIENT"
+    let expected = ProcessInfo.processInfo.environment[name] ?? ""
+    return !expected.isEmpty && AppConfig.Near.feeRecipient == expected ? [] : [name]
+}
+
 let differing = differences("MAINNET", AppConfig.Ohttp.mainnet) + differences("TESTNET", AppConfig.Ohttp.testnet)
+    + nearDifferences()
 if differing.isEmpty {
     print("values match")
 } else {
