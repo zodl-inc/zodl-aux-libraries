@@ -90,6 +90,10 @@ import ZodlAppConfig
 public func hasMainnetValues() -> Bool {
     AppConfig.Ohttp.mainnet != nil
 }
+
+public func hasNearFeeRecipient() -> Bool {
+    AppConfig.Near.feeRecipient != nil
+}
 SWIFT
 
 cd "$WORK/consumer"

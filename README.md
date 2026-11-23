@@ -7,7 +7,7 @@ the Swift decoder. The repository holds code and names only; the values exist on
 
 - Android: Maven artifact `com.zodl.android:app-config` on Maven Central, so public F-Droid (which only accepts
   allowlisted repositories) can resolve it. Kotlin object `com.zodl.appconfig.AppConfig.Ohttp`, one `const val` per
-  key, for example `AppConfig.Ohttp.GATEWAY_HOST_MAINNET`.
+  key, for example `AppConfig.Ohttp.GATEWAY_HOST_MAINNET` and `AppConfig.Near.FEE_RECIPIENT`.
 - iOS and macOS: Swift package `ZodlAppConfig`, a binary XCFramework attached to the GitHub release of each version.
 
 The libraries the apps use stay free of configuration: the apps depend on this package and pass the values to them at
@@ -67,9 +67,10 @@ Manual `Publish` workflow on `main` with the input `version` (`X.Y.Z`). It must 
 (limited to `main`, set up in `zodl-inc/github-config`). The 9 values and the Maven credentials are read from AWS by
 `zodl-inc/actions/aws-secrets`; nothing is stored on GitHub. In that environment the values are named
 `APP_CONFIG_OHTTP_<KEY>`, for example `APP_CONFIG_OHTTP_RELAY_URL_MAINNET`, and the near value is
-`APP_CONFIG_NEAR_FEE_RECIPIENT`, in the release environment's own container. Set it with github-config's
-`scripts/secret-set.py zodl-aux-libraries/env/release APP_CONFIG_NEAR_FEE_RECIPIENT` (plain value from stdin, no
-trailing newline). Three jobs run in order:
+`APP_CONFIG_NEAR_FEE_RECIPIENT`. All nine values live in the release environment's own container
+`/github/zodl-aux-libraries/env/release`. Each is set with github-config's
+`scripts/secret-set.py zodl-aux-libraries/env/release NAME` (plain value from stdin, no trailing newline). Three jobs
+run in order:
 
 1. `preflight` checks the version (its form, that it equals `VERSION_NAME`, that it is not a tag yet), checks the real
    values against the Android rules too, and rehearses the whole Swift release with them. It publishes nothing.
@@ -103,12 +104,15 @@ If `publish-ios` fails after `publish-android` succeeded:
 1. Add the key to `config/schema.json` (or a new group). `publish-android` reads every
    schema name, so each needs its mapping in step 2; `required: false` only lets the Kotlin generator accept an empty
    value. A new `ohttp` or `near` key, or a new group on the Swift side, also needs
-   `scripts/swift_values.py` (names and rules), the Swift API in `Sources/ZodlAppConfig/AppConfig.swift`, the name
-   lists of `publish.yml` and `scripts/verify_release_package.sh`; the tests fail while the schema and
-   `swift_values.ALL_NAMES` differ. Then `python3 scripts/swift_values.py generate --mode none`
-   keeps the committed Swift file in its form without values.
-2. Map `APP_CONFIG_<GROUP>_<KEY>` for the `release` environment in `zodl-inc/github-config`, pointing at the existing
-   Secrets Manager entry. The Swift jobs of `publish.yml` list the nine `ohttp` and `near` names themselves.
+   `scripts/swift_values.py` (names and rules), `scripts/appconfig.py` (a new group's rule needs its own branch in
+   `values()`), `scripts/test_workflows.py` (it keeps its own name list), the Swift API in
+   `Sources/ZodlAppConfig/AppConfig.swift`, the name lists of `publish.yml` and `scripts/verify_release_package.sh`;
+   the tests fail while the schema and `swift_values.ALL_NAMES` differ. Then
+   `python3 scripts/swift_values.py generate --mode none` keeps the committed Swift file in its form without values.
+2. List `APP_CONFIG_<GROUP>_<KEY>` under `repos.zodl-aux-libraries.environments.release` in github-config's
+   `secrets/secrets.yaml`, then set its value with `scripts/secret-set.py zodl-aux-libraries/env/release NAME`
+   (external mappings are invisible to aws-secrets for this repo). The Swift jobs of `publish.yml` list the nine
+   `ohttp` and `near` names themselves.
 3. Bump `VERSION_NAME` in `gradle.properties`, merge, run `Publish`, then bump the version in the apps.
 
 Anything published here is public and permanent. Only put values here that already ship inside the apps; access
