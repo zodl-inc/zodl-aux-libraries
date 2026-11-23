@@ -40,6 +40,7 @@ jobs:
           done
           # grep -c reads the whole stream: under pipefail an early exit would fail the producer.
           unzip -p "$BASE.jar" 'com/zodl/appconfig/AppConfig$Ohttp.class' | grep -ac ohttp-gateway.example > /dev/null
+          unzip -p "$BASE.jar" 'com/zodl/appconfig/AppConfig$Near.class' | grep -ac fee-recipient.example > /dev/null
           if unzip -l "$BASE.jar" | grep '\.kt$'; then echo "the jar must not ship sources" >&2; exit 1; fi
 
   swift-tests:

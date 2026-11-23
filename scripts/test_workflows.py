@@ -28,6 +28,7 @@ NAMES = [
     for network in ("MAINNET", "TESTNET")
     for field in ("GATEWAY_HOST", "RELAY_URL", "KEYS_DNS_NAME", "SIGNING_PUBKEY")
 ]
+ALL_NAMES = NAMES + ["APP_CONFIG_NEAR_FEE_RECIPIENT"]
 
 
 def read(name):
@@ -100,12 +101,12 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertLess(ios.index("scripts/build_release.sh"), ios.index("scripts/publish_release.sh"))
         self.assertEqual(self.text.count("scripts/publish_release.sh"), 1)
 
-    def test_both_swift_jobs_read_the_eight_values_through_the_pinned_action(self):
+    def test_both_swift_jobs_read_the_nine_values_through_the_pinned_action(self):
         for name in ("preflight", "publish-ios"):
             body = job(self.text, name)
             self.assertIn(AWS_ACTION, body)
             self.assertIn("id-token: write", body)
-            for value_name in NAMES:
+            for value_name in ALL_NAMES:
                 self.assertIn(value_name, body)
             self.assertIn('scripts/select_xcode.sh >> "$GITHUB_ENV"', body)
 
@@ -122,10 +123,10 @@ class PublishWorkflowTest(unittest.TestCase):
         self.assertLess(android.index("env-names"), android.index(AWS_ACTION))
         self.assertLess(android.index(AWS_ACTION), android.index("publishAndReleaseToMavenCentral"))
 
-    def test_the_schema_names_are_the_eight_values_of_the_swift_jobs(self):
+    def test_the_schema_names_are_the_nine_values_of_the_swift_jobs(self):
         names = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "appconfig.py"), "env-names"],
                                capture_output=True, text=True, check=True).stdout.split()
-        self.assertEqual(names, NAMES)
+        self.assertEqual(names, ALL_NAMES)
 
     def test_preflight_also_applies_the_android_rules_and_ios_checks_the_android_digest(self):
         preflight = job(self.text, "preflight")
@@ -146,7 +147,7 @@ class PublishWorkflowTest(unittest.TestCase):
 
     def test_no_step_prints_a_value(self):
         for line in self.text.splitlines():
-            self.assertIsNone(re.search(r"(echo|printf)\b.*\$\{?(APP_CONFIG|ZODL)_OHTTP_", line), line)
+            self.assertIsNone(re.search(r"(echo|printf)\b.*\$\{?(APP_CONFIG|ZODL)_(OHTTP|NEAR)_", line), line)
 
 
 class TestWorkflowTest(unittest.TestCase):
@@ -165,6 +166,7 @@ class TestWorkflowTest(unittest.TestCase):
         android = job(self.text, "android-tests")
         self.assertIn('eval "$(python3 scripts/swift_values.py example-env)"', android)
         self.assertIn("com/zodl/appconfig/AppConfig$Ohttp.class", android)
+        self.assertIn("com/zodl/appconfig/AppConfig$Near.class", android)
 
     def test_dry_run_uses_the_example_values_and_keeps_only_their_zip(self):
         dry = job(self.text, "xcframework-dry-run")

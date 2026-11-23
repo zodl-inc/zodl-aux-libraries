@@ -1,9 +1,9 @@
 # Zodl app config
 
 Tiny package, published for both platforms from one CI run, that carries build-time configuration for the Zodl apps:
-today one group, `ohttp`, with 8 values (gateway host, relay URL, keys DNS name, signing public key, for mainnet and
-testnet; all 8 are required). There is no runtime code besides the Swift decoder. The repository holds code and
-names only; the values exist only in the published artifacts.
+today two groups: `ohttp`, with 8 values (gateway host, relay URL, keys DNS name, signing public key, for mainnet and
+testnet; all 8 are required), and `near`, with 1 value (`FEE_RECIPIENT`, required). There is no runtime code besides
+the Swift decoder. The repository holds code and names only; the values exist only in the published artifacts.
 
 - Android: Maven artifact `com.zodl.android:app-config` on Maven Central, so public F-Droid (which only accepts
   allowlisted repositories) can resolve it. Kotlin object `com.zodl.appconfig.AppConfig.Ohttp`, one `const val` per
@@ -23,14 +23,17 @@ startup.
 `config/schema.json` lists the groups and keys, names only. `scripts/appconfig.py kotlin`, run by the Gradle task
 `generateConfig`, writes `AppConfig.kt` into the build directory from the environment variables
 `APP_CONFIG_<GROUP>_<KEY>`; the generated source is never committed. A group marked `required` needs every key. Values
-are printable ASCII without quotes, backslashes or `$`, and the `ohttp` values must also pass the rules of
-`scripts/swift_values.py` that the Swift release applies, so both platforms accept the same values. Errors name the
+are printable ASCII without quotes, backslashes or `$`, and the `ohttp` and `near` values must also pass the
+rules of `scripts/swift_values.py` that the Swift release applies, so both platforms accept the same values. The
+`near` value is a NEAR account ID: 2 to 64 characters, lower-case letters and digits separated by single `-`, `_` or
+`.` (implicit 64-hex accounts and named accounts both pass). Errors name the
 variable, never the value.
 
 ```kotlin
 import com.zodl.appconfig.AppConfig
 
 AppConfig.Ohttp.GATEWAY_HOST_MAINNET // also RELAY_URL_, KEYS_DNS_NAME_, SIGNING_PUBKEY_ for _MAINNET and _TESTNET
+AppConfig.Near.FEE_RECIPIENT
 ```
 
 ## Swift package
@@ -41,6 +44,7 @@ import ZodlAppConfig
 
 AppConfig.Ohttp.mainnet // AppConfig.Ohttp.NetworkValues?: gatewayHost, relayURL, keysDNSName, signingPublicKey
 AppConfig.Ohttp.testnet
+AppConfig.Near.feeRecipient // String?: the NEAR account that receives the app fee; nil in a build of main
 ```
 
 Pin an exact release version, never a branch:
@@ -49,10 +53,10 @@ Pin an exact release version, never a branch:
 .package(url: "https://github.com/zodl-inc/zodl-aux-libraries", exact: "X.Y.Z")
 ```
 
-- A release tag holds one binary target. Its XCFramework carries the eight values XOR-encoded, so none appears as plain
+- A release tag holds one binary target. Its XCFramework carries the nine values XOR-encoded, so none appears as plain
   text in the binary or in an app. Every release carries both networks.
 - `main` holds no values. `Sources/ZodlAppConfig/EncodedValues.generated.swift` is committed in its form without
-  values, so a build of `main` returns nil for both networks. `python3 scripts/swift_values.py generate --mode example`
+  values, so a build of `main` returns nil for both networks and for the near value. `python3 scripts/swift_values.py generate --mode example`
   writes public example values for local tests, and `--mode none` restores the committed form.
 - Xcode rule: a release works with the Xcode that built it and with every newer one. `.xcode-version` names the Xcode
   the workflows build with. Raise it on purpose, and never above the Xcode the apps are built with.
@@ -60,9 +64,12 @@ Pin an exact release version, never a branch:
 ## Release
 Manual `Publish` workflow on `main` with the input `version` (`X.Y.Z`). It must equal `VERSION_NAME` in
 `gradle.properties`, so bump that file first, in a pull request. The workflow runs in the environment `release`
-(limited to `main`, set up in `zodl-inc/github-config`). The 8 values and the Maven credentials are read from AWS by
+(limited to `main`, set up in `zodl-inc/github-config`). The 9 values and the Maven credentials are read from AWS by
 `zodl-inc/actions/aws-secrets`; nothing is stored on GitHub. In that environment the values are named
-`APP_CONFIG_OHTTP_<KEY>`, for example `APP_CONFIG_OHTTP_RELAY_URL_MAINNET`. Three jobs run in order:
+`APP_CONFIG_OHTTP_<KEY>`, for example `APP_CONFIG_OHTTP_RELAY_URL_MAINNET`, and the near value is
+`APP_CONFIG_NEAR_FEE_RECIPIENT`, in the release environment's own container. Set it with github-config's
+`scripts/secret-set.py zodl-aux-libraries/env/release APP_CONFIG_NEAR_FEE_RECIPIENT` (plain value from stdin, no
+trailing newline). Three jobs run in order:
 
 1. `preflight` checks the version (its form, that it equals `VERSION_NAME`, that it is not a tag yet), checks the real
    values against the Android rules too, and rehearses the whole Swift release with them. It publishes nothing.
@@ -93,14 +100,15 @@ If `publish-ios` fails after `publish-android` succeeded:
   artifact of the failed version stays without a Swift release.
 
 ## Adding a value
-1. Add the key to `config/schema.json` (or a new group, which reaches Android only). `publish-android` reads every
+1. Add the key to `config/schema.json` (or a new group). `publish-android` reads every
    schema name, so each needs its mapping in step 2; `required: false` only lets the Kotlin generator accept an empty
-   value. A new `ohttp` key also needs
-   `scripts/swift_values.py` (names and rules) and the Swift API in `Sources/ZodlAppConfig/AppConfig.swift`; the tests
-   fail while the schema and `swift_values.NAMES` differ. Then `python3 scripts/swift_values.py generate --mode none`
+   value. A new `ohttp` or `near` key, or a new group on the Swift side, also needs
+   `scripts/swift_values.py` (names and rules), the Swift API in `Sources/ZodlAppConfig/AppConfig.swift`, the name
+   lists of `publish.yml` and `scripts/verify_release_package.sh`; the tests fail while the schema and
+   `swift_values.ALL_NAMES` differ. Then `python3 scripts/swift_values.py generate --mode none`
    keeps the committed Swift file in its form without values.
 2. Map `APP_CONFIG_<GROUP>_<KEY>` for the `release` environment in `zodl-inc/github-config`, pointing at the existing
-   Secrets Manager entry. The Swift jobs of `publish.yml` list the eight `ohttp` names themselves.
+   Secrets Manager entry. The Swift jobs of `publish.yml` list the nine `ohttp` and `near` names themselves.
 3. Bump `VERSION_NAME` in `gradle.properties`, merge, run `Publish`, then bump the version in the apps.
 
 Anything published here is public and permanent. Only put values here that already ship inside the apps; access

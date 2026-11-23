@@ -7,7 +7,7 @@ name: Publish
 #                    creates the GitHub release that holds the XCFramework, with the zodl-release-bot app's token
 # The tag is pushed only after Android is published, right before the GitHub release is created.
 # Manual only: a new version is a deliberate act. The 'release' environment (github-config) is limited to main.
-# Values and Maven credentials are read from AWS by zodl-inc/actions/aws-secrets, no copy lives on GitHub.
+# The values (groups ohttp and near) and the Maven credentials are read from AWS by zodl-inc/actions/aws-secrets, no copy lives on GitHub.
 on:
   workflow_dispatch:
     inputs:
@@ -39,7 +39,7 @@ jobs:
         run: scripts/check_version.sh "$VERSION"
       - name: Select the Xcode in .xcode-version
         run: scripts/select_xcode.sh >> "$GITHUB_ENV"
-      - name: Read the values of the ohttp group from AWS
+      - name: Read the values of the ohttp and near groups from AWS
         uses: zodl-inc/actions/aws-secrets@1089c3325c069e5cdd6ae5aa625006c850388c56 # v1
         with:
           environment: release
@@ -52,6 +52,7 @@ jobs:
             APP_CONFIG_OHTTP_RELAY_URL_TESTNET
             APP_CONFIG_OHTTP_KEYS_DNS_NAME_TESTNET
             APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET
+            APP_CONFIG_NEAR_FEE_RECIPIENT
       - name: The values also pass the Android rules (writes only to the runner's temp directory)
         run: python3 scripts/appconfig.py kotlin "$RUNNER_TEMP/android-check" && rm -rf "$RUNNER_TEMP/android-check"
       - name: Rehearse the Swift release (publishes nothing)
@@ -149,7 +150,7 @@ jobs:
         with: { persist-credentials: false }
       - name: Select the Xcode in .xcode-version
         run: scripts/select_xcode.sh >> "$GITHUB_ENV"
-      - name: Read the values of the ohttp group from AWS
+      - name: Read the values of the ohttp and near groups from AWS
         uses: zodl-inc/actions/aws-secrets@1089c3325c069e5cdd6ae5aa625006c850388c56 # v1
         with:
           environment: release
@@ -162,6 +163,7 @@ jobs:
             APP_CONFIG_OHTTP_RELAY_URL_TESTNET
             APP_CONFIG_OHTTP_KEYS_DNS_NAME_TESTNET
             APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET
+            APP_CONFIG_NEAR_FEE_RECIPIENT
             RELEASE_BOT_APP_KEY
           vars: |
             RELEASE_BOT_APP_ID
