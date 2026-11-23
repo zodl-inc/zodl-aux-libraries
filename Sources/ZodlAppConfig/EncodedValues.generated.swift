@@ -3,4 +3,5 @@ enum EncodedValues {
     static let key: [UInt8] = []
     static let mainnet: [[UInt8]]? = nil
     static let testnet: [[UInt8]]? = nil
+    static let near: [[UInt8]]? = nil
 }
