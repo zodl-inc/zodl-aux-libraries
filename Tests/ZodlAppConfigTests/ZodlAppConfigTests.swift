@@ -24,16 +24,21 @@ import Testing
         gatewayHost: "ohttp-gateway.example",
         relayURL: "https://relay-mainnet.example/relay",
         keysDNSName: "mainnet.ohttp-keys.example",
-        signingPublicKey: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+        signingPublicKey: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        relayURLs: "https://relay-mainnet.example/relay,https://relay-b-mainnet.example/gateway",
+        relayWeightsPublicKey: "e2225dda526b89922a0eef7a928d3d7aa2d2e7ad7f325408d3d08c70f016a8c0"
     )
 
     func encoded(_ values: AppConfig.Ohttp.NetworkValues) -> [[UInt8]] {
-        [values.gatewayHost, values.relayURL, values.keysDNSName, values.signingPublicKey].map { value in
+        [
+            values.gatewayHost, values.relayURL, values.keysDNSName, values.signingPublicKey, values.relayURLs,
+            values.relayWeightsPublicKey
+        ].map { value in
             value.utf8.enumerated().map { index, byte in byte ^ key[index % key.count] }
         }
     }
 
-    @Test func decodeRoundTripsFourValuesInFieldOrder() {
+    @Test func decodeRoundTripsSixValuesInFieldOrder() {
         #expect(AppConfig.Ohttp.decode(key: key, network: encoded(example)) == example)
     }
 
@@ -42,9 +47,9 @@ import Testing
     }
 
     @Test func decodeReturnsNilForTheWrongNumberOfValues() {
-        let four = encoded(example)
-        #expect(AppConfig.Ohttp.decode(key: key, network: Array(four.prefix(3))) == nil)
-        #expect(AppConfig.Ohttp.decode(key: key, network: four + [four[0]]) == nil)
+        let six = encoded(example)
+        #expect(AppConfig.Ohttp.decode(key: key, network: Array(six.prefix(5))) == nil)
+        #expect(AppConfig.Ohttp.decode(key: key, network: six + [six[0]]) == nil)
         #expect(AppConfig.Ohttp.decode(key: key, network: []) == nil)
     }
 
@@ -52,6 +57,20 @@ import Testing
         var network = encoded(example)
         network[2] = [0xFF ^ key[0]]
         #expect(AppConfig.Ohttp.decode(key: key, network: network) == nil)
+    }
+
+    @Test func theRelayListDefaultsToTheRelayURL() {
+        let single = AppConfig.Ohttp.NetworkValues(
+            gatewayHost: "g.example", relayURL: "https://r.example/relay", keysDNSName: "k.example", signingPublicKey: "00"
+        )
+        #expect(single.relayURLs == "https://r.example/relay")
+    }
+
+    @Test func theRelayWeightsKeyDefaultsToEmpty() {
+        let single = AppConfig.Ohttp.NetworkValues(
+            gatewayHost: "g.example", relayURL: "https://r.example/relay", keysDNSName: "k.example", signingPublicKey: "00"
+        )
+        #expect(single.relayWeightsPublicKey == "")
     }
 
     @Test func decodeReturnsNilWithoutAKey() {

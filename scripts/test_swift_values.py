@@ -65,6 +65,9 @@ class ValidateTest(unittest.TestCase):
             "APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET": ["abcd1234", "g" * 64, EXAMPLE["APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET"] + "\n",
                                                   "0100000000000000000000000000000000000000000000000000000000000000",
                                                   "02" + "00" * 31],
+            "APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_MAINNET": ["abcd1234", "g" * 64, " " + EXAMPLE["APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_MAINNET"],
+                                                         "0100000000000000000000000000000000000000000000000000000000000000",
+                                                         "02" + "00" * 31],
         }
         for name, bad_values in cases.items():
             for value in bad_values:
@@ -76,8 +79,52 @@ class ValidateTest(unittest.TestCase):
     def test_valid_relay_forms_are_accepted(self):
         for value in ["https://relay.example", "https://relay.example:8443/relay", "https://192.0.2.1/relay",
                       "https://[2001:db8::1]:8443/relay", "https://Relay.Example/relay"]:
-            problems = swift_values.validate({**EXAMPLE, "APP_CONFIG_OHTTP_RELAY_URL_MAINNET": value})
+            problems = swift_values.validate({**EXAMPLE, "APP_CONFIG_OHTTP_RELAY_URL_MAINNET": value,
+                                              "APP_CONFIG_OHTTP_RELAY_URLS_MAINNET": value})
             self.assertEqual(problems, [], value)
+
+    def test_relay_lists_follow_the_client_rules(self):
+        name = "APP_CONFIG_OHTTP_RELAY_URLS_MAINNET"
+        first = EXAMPLE["APP_CONFIG_OHTTP_RELAY_URL_MAINNET"]
+        for good in [first, first + ",https://b.example/x", first + "/,https://b.example:8443/x",
+                     ",".join([first] + ["https://r%d.example/relay" % i for i in range(7)])]:
+            self.assertEqual(swift_values.validate({**EXAMPLE, name: good}), [], good)
+        for bad in [first + ",,https://b.example/x", first + ",https://",
+                    first + ",https://RELAY-MAINNET.example:443/relay/", first + ",https://b.example/a b",
+                    ",".join([first] + ["https://r%d.example/relay" % i for i in range(8)])]:
+            problems = swift_values.validate({**EXAMPLE, name: bad})
+            self.assertEqual([p[0] for p in problems], [name], bad)
+            self.assertNotIn("example", problems[0][1])
+
+    def test_a_relay_list_starts_with_the_relay_url_and_shares_no_relay_across_networks(self):
+        name = "APP_CONFIG_OHTTP_RELAY_URLS_MAINNET"
+        problems = swift_values.validate({**EXAMPLE, name: "https://b.example/x,%s"
+                                          % EXAMPLE["APP_CONFIG_OHTTP_RELAY_URL_MAINNET"]})
+        self.assertEqual(problems, [(name, "must list RELAY_URL_MAINNET first")])
+        shared = EXAMPLE["APP_CONFIG_OHTTP_RELAY_URL_TESTNET"] + ",https://relay-b-mainnet.example/gateway"
+        problems = swift_values.validate({**EXAMPLE, "APP_CONFIG_OHTTP_RELAY_URLS_TESTNET": shared})
+        self.assertEqual(problems, [("APP_CONFIG_OHTTP_RELAY_URLS_TESTNET", "must share no relay with RELAY_URLS_MAINNET")])
+
+    def test_a_relay_weights_key_in_either_case_is_accepted(self):
+        name = "APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_TESTNET"
+        self.assertEqual(swift_values.validate({**EXAMPLE, name: EXAMPLE[name].upper()}), [])
+
+    def test_a_relay_weights_key_differs_from_every_signing_and_weights_key(self):
+        def check(name, other, rule):
+            for value in (EXAMPLE[other], EXAMPLE[other].upper()):
+                problems = swift_values.validate({**EXAMPLE, name: value})
+                self.assertEqual(len(problems), 1, (name, other))
+                self.assertEqual(problems[0][0], name)
+                self.assertIn(rule, problems[0][1])
+                self.assertNotIn(value.lower(), problems[0][1].lower())
+        for network in ("MAINNET", "TESTNET"):
+            check("APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_%s" % network, "APP_CONFIG_OHTTP_SIGNING_PUBKEY_%s" % network,
+                  "must differ from SIGNING_PUBKEY_%s" % network)
+        testnet = "APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_TESTNET"
+        for other in ("APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_MAINNET", "APP_CONFIG_OHTTP_SIGNING_PUBKEY_MAINNET"):
+            check(testnet, other, other)
+        check("APP_CONFIG_OHTTP_SIGNING_PUBKEY_TESTNET", "APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_MAINNET",
+              "APP_CONFIG_OHTTP_RELAY_WEIGHTS_PUBKEY_MAINNET")
 
     def test_a_testnet_value_equal_to_a_mainnet_value_is_rejected(self):
         values = {**EXAMPLE, "APP_CONFIG_OHTTP_GATEWAY_HOST_TESTNET": EXAMPLE["APP_CONFIG_OHTTP_GATEWAY_HOST_MAINNET"]}
@@ -86,9 +133,10 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(problems[0][0], "APP_CONFIG_OHTTP_GATEWAY_HOST_TESTNET")
         self.assertIn("APP_CONFIG_OHTTP_GATEWAY_HOST_MAINNET", problems[0][1])
         relay = EXAMPLE["APP_CONFIG_OHTTP_RELAY_URL_MAINNET"].replace("relay-mainnet", "Relay-Mainnet")
-        problems = swift_values.validate({**EXAMPLE, "APP_CONFIG_OHTTP_RELAY_URL_TESTNET": relay})
-        self.assertEqual(len(problems), 1)
+        problems = swift_values.validate({**EXAMPLE, "APP_CONFIG_OHTTP_RELAY_URL_TESTNET": relay,
+                                          "APP_CONFIG_OHTTP_RELAY_URLS_TESTNET": "https://relay-testnet.example/relay"})
         self.assertEqual(problems[0][0], "APP_CONFIG_OHTTP_RELAY_URL_TESTNET")
+        self.assertIn("APP_CONFIG_OHTTP_RELAY_URL_MAINNET", problems[0][1])
 
 
 def parse_arrays(source):
@@ -102,11 +150,11 @@ def parse_arrays(source):
 
 
 class EncodeTest(unittest.TestCase):
-    def test_encode_round_trips_all_eight_in_order(self):
+    def test_encode_round_trips_all_twelve_in_order(self):
         source = swift_values.encode(EXAMPLE)
         arrays = parse_arrays(source)
         key, rest = arrays[0], arrays[1:]
-        self.assertEqual(len(rest), 8)
+        self.assertEqual(len(rest), 12)
         decoded = [bytes(b ^ key[i % len(key)] for i, b in enumerate(array)).decode("utf-8") for array in rest]
         self.assertEqual(decoded, [EXAMPLE[name] for name in NAMES])
         for value in EXAMPLE.values():
@@ -175,7 +223,7 @@ class CommandTest(unittest.TestCase):
         with open(self.output, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), swift_values.encode(None))
 
-    def test_example_env_prints_the_eight_exports(self):
+    def test_example_env_prints_the_twelve_exports(self):
         result = run(["example-env"], {})
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.splitlines(), ["export %s='%s'" % (name, EXAMPLE[name]) for name in NAMES])
