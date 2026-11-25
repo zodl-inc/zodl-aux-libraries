@@ -80,4 +80,19 @@ public enum AppConfig {
             )
         }
     }
+
+    /// The near group. A release carries the fee recipient; a build of `main` carries none.
+    public enum Near {
+        public static let feeRecipient: String? = decode(key: EncodedValues.key, value: EncodedValues.near)
+
+        /// Decodes the fee recipient as `scripts/swift_values.py` writes it: exactly one value, its UTF-8 bytes XORed
+        /// with the key, byte `i` with `key[i % key.count]`. Nil when the value is absent, the key is empty, there is
+        /// not exactly one value, or the value does not decode to UTF-8.
+        static func decode(key: [UInt8], value: [[UInt8]]?) -> String? {
+            guard let value, value.count == 1, !key.isEmpty else {
+                return nil
+            }
+            return String(bytes: value[0].enumerated().map { index, byte in byte ^ key[index % key.count] }, encoding: .utf8)
+        }
+    }
 }

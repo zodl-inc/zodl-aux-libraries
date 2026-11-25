@@ -1,5 +1,5 @@
 {
-  "_comment": "Names only, never values. Each key becomes a constant of the Android artifact, AppConfig.<Group>.<KEY>, filled in CI from the environment variable APP_CONFIG_<GROUP>_<KEY> (read from AWS Secrets Manager through OIDC in the release environment). The ohttp keys must equal scripts/swift_values.py NAMES, which the Swift package uses. See README, Adding a value.",
+  "_comment": "Names only, never values. Each key becomes a constant of the Android artifact, AppConfig.<Group>.<KEY>, filled in CI from the environment variable APP_CONFIG_<GROUP>_<KEY> (read from AWS Secrets Manager through OIDC in the release environment). The ohttp and near keys must equal scripts/swift_values.py ALL_NAMES, which the Swift package uses. See README, Adding a value.",
   "kotlin_package": "com.zodl.appconfig",
   "root": "AppConfig",
   "groups": {
@@ -18,6 +18,12 @@
         "SIGNING_PUBKEY_TESTNET",
         "RELAY_URLS_TESTNET",
         "RELAY_WEIGHTS_PUBKEY_TESTNET"
+      ]
+    },
+    "near": {
+      "required": true,
+      "keys": [
+        "FEE_RECIPIENT"
       ]
     }
   }

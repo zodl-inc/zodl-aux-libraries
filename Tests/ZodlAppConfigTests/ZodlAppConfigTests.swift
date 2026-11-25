@@ -77,3 +77,33 @@ import Testing
         #expect(AppConfig.Ohttp.decode(key: [], network: encoded(example)) == nil)
     }
 }
+
+@Suite struct NearTests {
+    let key: [UInt8] = (0..<32).map { UInt8(0xA0 + $0) }
+
+    func encoded(_ value: String) -> [UInt8] {
+        value.utf8.enumerated().map { index, byte in byte ^ key[index % key.count] }
+    }
+
+    @Test func decodeRoundTripsTheRecipient() {
+        #expect(AppConfig.Near.decode(key: key, value: [encoded("fee-recipient.example")]) == "fee-recipient.example")
+    }
+
+    @Test func decodeReturnsNilForAnAbsentValue() {
+        #expect(AppConfig.Near.decode(key: key, value: nil) == nil)
+    }
+
+    @Test func decodeReturnsNilForTheWrongNumberOfValues() {
+        let one = encoded("fee-recipient.example")
+        #expect(AppConfig.Near.decode(key: key, value: []) == nil)
+        #expect(AppConfig.Near.decode(key: key, value: [one, one]) == nil)
+    }
+
+    @Test func decodeReturnsNilForAValueThatIsNotUTF8() {
+        #expect(AppConfig.Near.decode(key: key, value: [[0xFF ^ key[0]]]) == nil)
+    }
+
+    @Test func decodeReturnsNilWithoutAKey() {
+        #expect(AppConfig.Near.decode(key: [], value: [encoded("fee-recipient.example")]) == nil)
+    }
+}

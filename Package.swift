@@ -17,7 +17,7 @@
 
 import PackageDescription
 
-// Development form. On main the generated file holds no values, so a build of main returns nil for both networks.
+// Development form. On main the generated file holds no values, so a build of main returns nil for both networks and for the near value.
 // A release tag carries a different Package.swift, written by scripts/release_manifest.py: one binary target
 // whose XCFramework holds the values. Consume a release tag, never a branch.
 let package = Package(

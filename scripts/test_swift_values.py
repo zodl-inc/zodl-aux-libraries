@@ -29,6 +29,8 @@ import swift_values  # noqa: E402
 
 EXAMPLE = swift_values.EXAMPLE_VALUES
 NAMES = swift_values.NAMES
+ALL_NAMES = swift_values.ALL_NAMES
+NEAR = "APP_CONFIG_NEAR_FEE_RECIPIENT"
 
 
 def run(args, env):
@@ -43,6 +45,11 @@ def run(args, env):
 class ValidateTest(unittest.TestCase):
     def test_example_values_are_valid(self):
         self.assertEqual(swift_values.validate(EXAMPLE), [])
+        self.assertEqual(swift_values.validate_near(EXAMPLE), [])
+        self.assertEqual(swift_values.validate_release(EXAMPLE), [])
+
+    def test_ohttp_validate_ignores_the_near_value(self):
+        self.assertEqual(swift_values.validate({n: EXAMPLE[n] for n in NAMES}), [])
 
     def test_each_missing_value_is_named(self):
         for name in NAMES:
@@ -139,6 +146,31 @@ class ValidateTest(unittest.TestCase):
         self.assertIn("APP_CONFIG_OHTTP_RELAY_URL_MAINNET", problems[0][1])
 
 
+class NearRuleTest(unittest.TestCase):
+    def test_accepts_implicit_and_named_accounts(self):
+        for value in ["d7" * 32, "a" * 64, "fee-recipient.example", "zodl.near", "a_b-c.d", "ab"]:
+            self.assertEqual(swift_values.validate_near({NEAR: value}), [], value)
+
+    def test_rejects_malformed_accounts_without_printing_them(self):
+        for value in ["a", "A" * 64, "x" * 65, "fee..example", "-fee.example", "fee-.example", "fee.example.",
+                      "fee example", "fee-recipient.example\n", " fee-recipient.example"]:
+            problems = swift_values.validate_near({NEAR: value})
+            self.assertEqual(len(problems), 1, value)
+            self.assertEqual(problems[0][0], NEAR)
+            if len(value.strip()) >= 4:
+                self.assertNotIn(value.strip(), problems[0][1])
+
+    def test_missing_near_is_named(self):
+        problems = swift_values.validate_near({})
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0][0], NEAR)
+        self.assertIn("missing", problems[0][1])
+        problems = swift_values.validate_release({n: v for n, v in EXAMPLE.items() if n != NEAR})
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0][0], NEAR)
+        self.assertIn("missing", problems[0][1])
+
+
 def parse_arrays(source):
     arrays = []
     for line in source.splitlines():
@@ -150,20 +182,20 @@ def parse_arrays(source):
 
 
 class EncodeTest(unittest.TestCase):
-    def test_encode_round_trips_all_twelve_in_order(self):
+    def test_encode_round_trips_all_thirteen_in_order(self):
         source = swift_values.encode(EXAMPLE)
         arrays = parse_arrays(source)
         key, rest = arrays[0], arrays[1:]
-        self.assertEqual(len(rest), 12)
+        self.assertEqual(len(rest), 13)
         decoded = [bytes(b ^ key[i % len(key)] for i, b in enumerate(array)).decode("utf-8") for array in rest]
-        self.assertEqual(decoded, [EXAMPLE[name] for name in NAMES])
+        self.assertEqual(decoded, [EXAMPLE[name] for name in ALL_NAMES])
         for value in EXAMPLE.values():
             self.assertNotIn(value, source)
 
     def test_key_is_the_digest_of_the_domain_and_the_values(self):
         source = swift_values.encode(EXAMPLE)
         key_line = next(line for line in source.splitlines() if "static let key" in line)
-        expected = hashlib.sha256(swift_values.KEY_DOMAIN + "\0".join(EXAMPLE[name] for name in NAMES).encode()).digest()
+        expected = hashlib.sha256(swift_values.KEY_DOMAIN + "\0".join(EXAMPLE[name] for name in ALL_NAMES).encode()).digest()
         self.assertEqual(bytes(parse_arrays(key_line)[0]), expected)
 
     def test_output_is_stable(self):
@@ -176,6 +208,7 @@ class EncodeTest(unittest.TestCase):
             "    static let key: [UInt8] = []",
             "    static let mainnet: [[UInt8]]? = nil",
             "    static let testnet: [[UInt8]]? = nil",
+            "    static let near: [[UInt8]]? = nil",
             "}",
         ]) + "\n")
 
@@ -203,6 +236,15 @@ class CommandTest(unittest.TestCase):
         for value in EXAMPLE.values():
             self.assertNotIn(value, result.stdout + result.stderr)
 
+    def test_release_mode_with_a_missing_near_value_writes_nothing_and_names_it(self):
+        env = {n: v for n, v in EXAMPLE.items() if n != NEAR}
+        result = run(["generate", "--mode", "release", "--output", self.output], env)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(os.path.exists(self.output))
+        self.assertIn("error: APP_CONFIG_NEAR_FEE_RECIPIENT: missing", result.stderr)
+        for value in EXAMPLE.values():
+            self.assertNotIn(value, result.stdout + result.stderr)
+
     def test_release_mode_with_an_invalid_value_never_prints_it(self):
         env = {**EXAMPLE, "APP_CONFIG_OHTTP_GATEWAY_HOST_MAINNET": "Secret-Host.example"}
         result = run(["generate", "--mode", "release", "--output", self.output], env)
@@ -223,10 +265,10 @@ class CommandTest(unittest.TestCase):
         with open(self.output, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), swift_values.encode(None))
 
-    def test_example_env_prints_the_twelve_exports(self):
+    def test_example_env_prints_the_thirteen_exports(self):
         result = run(["example-env"], {})
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout.splitlines(), ["export %s='%s'" % (name, EXAMPLE[name]) for name in NAMES])
+        self.assertEqual(result.stdout.splitlines(), ["export %s='%s'" % (name, EXAMPLE[name]) for name in ALL_NAMES])
 
 
 if __name__ == "__main__":
