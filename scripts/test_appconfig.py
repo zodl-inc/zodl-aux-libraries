@@ -119,7 +119,7 @@ class RealSchemaTest(unittest.TestCase):
     def test_ohttp_keys_are_the_names_the_swift_package_uses(self):
         r = run_generator(ROOT, {}, "env-names")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.split(), swift_values.NAMES)
+        self.assertEqual(r.stdout.split(), swift_values.ALL_NAMES)
 
     def test_example_values_give_the_kotlin_api(self):
         r = run_generator(ROOT, swift_values.EXAMPLE_VALUES, "kotlin", self.out)
@@ -129,8 +129,26 @@ class RealSchemaTest(unittest.TestCase):
         self.assertIn("package com.zodl.appconfig\n", text)
         self.assertIn("object AppConfig {\n    object Ohttp {\n", text)
         for name, value in swift_values.EXAMPLE_VALUES.items():
-            key = name[len("APP_CONFIG_OHTTP_"):]
-            self.assertIn('        const val %s: String = "%s"\n' % (key, value), text)
+            if name.startswith("APP_CONFIG_OHTTP_"):
+                key = name[len("APP_CONFIG_OHTTP_"):]
+                self.assertIn('        const val %s: String = "%s"\n' % (key, value), text)
+        self.assertIn('    object Near {\n        const val FEE_RECIPIENT: String = "fee-recipient.example"\n', text)
+
+    def test_near_value_follows_the_near_rule(self):
+        name = "APP_CONFIG_NEAR_FEE_RECIPIENT"
+        for bad in ("Fee.Example", "fee-recipient.example\n"):
+            r = run_generator(ROOT, dict(swift_values.EXAMPLE_VALUES, **{name: bad}), "kotlin", self.out)
+            self.assertNotEqual(r.returncode, 0, repr(bad))
+            self.assertIn(name, r.stderr)
+            self.assertNotIn(bad, r.stderr)
+            self.assertFalse(os.path.exists(self.kt))
+
+    def test_the_near_value_is_required(self):
+        name = "APP_CONFIG_NEAR_FEE_RECIPIENT"
+        env = {n: v for n, v in swift_values.EXAMPLE_VALUES.items() if n != name}
+        r = run_generator(ROOT, env, "kotlin", self.out)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(name, r.stderr)
 
     def test_swift_values_follow_the_swift_release_rules(self):
         for name, bad in (("APP_CONFIG_OHTTP_GATEWAY_HOST_MAINNET", "https://gw.example"),
@@ -143,7 +161,7 @@ class RealSchemaTest(unittest.TestCase):
             self.assertNotIn(bad, r.stderr)
             self.assertFalse(os.path.exists(self.kt))
 
-    def test_all_eight_values_are_required(self):
+    def test_all_twelve_values_are_required(self):
         env = {n: v for n, v in swift_values.EXAMPLE_VALUES.items() if not n.endswith("_TESTNET")}
         r = run_generator(ROOT, env, "kotlin", self.out)
         self.assertNotEqual(r.returncode, 0)
@@ -156,6 +174,8 @@ class RealSchemaTest(unittest.TestCase):
         self.assertRegex(first.stdout, r"^[0-9a-f]{64}\n$")
         self.assertEqual(run_generator(ROOT, env, "digest").stdout, first.stdout)
         env["APP_CONFIG_OHTTP_RELAY_URL_TESTNET"] = "https://relay-testnet.example/other"
+        self.assertNotEqual(run_generator(ROOT, env, "digest").stdout, first.stdout)
+        env = dict(swift_values.EXAMPLE_VALUES, APP_CONFIG_NEAR_FEE_RECIPIENT="other-recipient.example")
         self.assertNotEqual(run_generator(ROOT, env, "digest").stdout, first.stdout)
 
     def test_values_are_not_stripped(self):

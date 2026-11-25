@@ -193,6 +193,18 @@ class PipefailTest(unittest.TestCase):
                 self.assertIsNone(re.search(r"\|\s*head\b", line), "%s:%d: %s" % (script.name, number, line))
 
 
+class VerifyReleasePackageTest(unittest.TestCase):
+    def test_the_consumer_also_compares_the_near_value(self):
+        text = (SCRIPTS / "verify_release_package.sh").read_text()
+        self.assertIn("AppConfig.Near.feeRecipient", text)
+        self.assertIn('"APP_CONFIG_NEAR_FEE_RECIPIENT"', text)
+        # The consumer must actually fold the near comparison into the verdict.
+        lines = [line for line in text.splitlines() if line.startswith("let differing")]
+        self.assertEqual(len(lines), 1)
+        statement = text[text.index(lines[0]):].split("if differing.isEmpty", 1)[0]
+        self.assertIn("nearDifferences()", statement)
+
+
 class CheckVersionTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
