@@ -161,7 +161,7 @@ class RealSchemaTest(unittest.TestCase):
             self.assertNotIn(bad, r.stderr)
             self.assertFalse(os.path.exists(self.kt))
 
-    def test_all_eight_values_are_required(self):
+    def test_all_twelve_values_are_required(self):
         env = {n: v for n, v in swift_values.EXAMPLE_VALUES.items() if not n.endswith("_TESTNET")}
         r = run_generator(ROOT, env, "kotlin", self.out)
         self.assertNotEqual(r.returncode, 0)
